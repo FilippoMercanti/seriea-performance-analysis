@@ -1,59 +1,41 @@
 # Serie A Performance Analysis (2024/2025)
 
 **Author:** Filippo Mercanti  
-**Project for:** Computational Statistics / Data Science for Economics, Business and Finance  
-
+**Program:** Data Science for Economics, Business and Finance  
+**Project for:** Computational Statistics  
 
 ## What is this project about?
 
-For my Computational Statistics exam, I analyzed what drives success in Italian Serie A during the 2024/2025 season. 
+For my Computational Statistics project, I analyzed what drives team success in the Italian Serie A during the 2024/2025 season. 
 
-I combined different performance metrics like Expected Goals, Shot Creation Actions, Pass completion, and Recoveries to see what actually predicts a team's **points in the table** and **goals scored**.
-
+The analysis integrates multiple official performance metrics—such as Expected Goals (`xG`), Shot-Creating Actions (`SCA`), passing data, defensive recoveries, and possession—to evaluate their impact on a team's **points in the table** and **goals scored**.
 
 ## What I did
 
-1. **Collected & Cleaned Data:** Downloaded 8 datasets from FBref, cleaned team names, and merged them into a single dataframe in R.
-2. **Linear Regressions:** Built multiple regression models to predict Points and Goals, checking classic assumptions (Shapiro-Wilk, Breusch-Pagan, VIF).
-3. **PCA (Principal Component Analysis):** Reduced dimensions to find the main playstyle traits explaining team performance (~87% variance explained by PC1 and PC2).
-4. **K-Means Clustering:** Grouped all 20 teams into 3 performance clusters.
-
+1. **Data Loading & Cleaning:** Processed 7 official CSV datasets, cleaned team names using regular expressions and character encoding fixes, and merged them into a unified dataset of 20 teams.
+2. **Multiple Linear Regressions:** Built econometric models to predict both League Points and Goals scored, evaluating model fit and statistical significance.
+3. **Principal Component Analysis (PCA):** Performed dimensionality reduction to extract the main latent playstyle dimensions explaining overall team performance.
+4. **K-Means Clustering:** Grouped all 20 teams into 3 distinct performance clusters based on standardized metrics.
 
 ## Project Structure
 
-- **data/** : Original FBref CSV files
-- **R/main_analysis.R** : Main R script with all data cleaning and analysis
-- **output/** : Exported plots and summary comparison CSV
-- **README.md** : Documentation file
+- `serieA_2024_standard.csv` (and other source datasets in the working directory) : Raw FBref CSV files.
+- `main_analysis.R` : Main R script containing data processing, regression models, PCA, and clustering.
 
+## Summary of Results
 
-## Quick Summary of Results
+### Regression Models Performance
 
-### Regressions
-When predicting Goals scored, a model with just Expected Goals (**xG**) and Shot Creation Actions (**SCA**) reaches an $R^2 = 0.93$, performing almost as well as the full 6-variable model ($R^2 = 0.97$). This highlights that chance quality is far more impactful than raw possession.
+* **Points Model (Full):** $R^2 = 0.841$ | Adj. $R^2 = 0.768$ (Predictors: xG, Poss, SCA, Short_Pass, Long_pass, Recov)
+* **Goals Model (Full):** $R^2 = 0.972$ | Adj. $R^2 = 0.958$ (Predictors: xG, Poss, SCA, Short_Pass, Long_pass, Recov)
+* **Goals Model (Reduced):** $R^2 = 0.930$ | Adj. $R^2 = 0.922$ (Predictors: xG, SCA)
 
-* **Points Model (Full):** R² = 0.841 | Adj. R² = 0.768 | Predictors: 6
-* **Goals Model (Full):** R² = 0.972 | Adj. R² = 0.958 | Predictors: 6
-* **Goals Model (Reduced - xG + SCA):** R² = 0.930 | Adj. R² = 0.922 | Predictors: 2
+*Key Insight:* The reduced goals model proves that chance quality (`xG`) and creation (`SCA`) account for over 93% of goal-scoring variance, showing that raw possession is far less decisive than offensive efficiency.
 
+## How to Run the Code
 
-## Plots
+1. Open your project folder in RStudio and ensure all 7 CSV files are present in the working directory.
+2. Open and run the R script (`main_analysis.R`). 
+3. Statistical summaries will be printed to the console, and the PCA/Clustering interactive plots will be displayed directly in the RStudio **Plots** pane.
 
-### PCA Biplot
-How variables correlate and where teams land on PC1 and PC2:
-
-![PCA Biplot](output/pca_biplot.png)
-
-### K-Means Clusters
-Teams grouped into 3 tiers based on overall stats:
-
-![Cluster Mapping](output/cluster_pca.png)
-
-
-## How to run the code
-
-1. Open **R/main_analysis.R** in RStudio.
-2. Set your working directory to the project folder.
-3. Run the script. All plots and the summary CSV will be saved in the **output/** folder.
-
-**Packages used:** ggplot2, factoextra, lmtest, car, dplyr, readr.
+**Required Packages:** `readr`, `dplyr`, `factoextra`, `ggplot2`.
