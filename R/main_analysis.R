@@ -1,56 +1,29 @@
 # ============================================================
-# COMPUTATIONAL STATISTICS PROJECT
-# Title: Determinants of Team Performance in Serie A (2024/2025)
-# Author: Filippo Mercanti
-# Program: Data Science for Economics, Business and Finance
+# PROGETTO DI COMPUTATIONAL STATISTICS
+# Titolo: Analisi dei fattori che incidono sulle prestazioni
+# delle squadre di Serie A - Stagione 2024/2025
+# Studente: Filippo Mercanti
+# Corso: Data Science for Economics, Business and Finance
 # ============================================================
 
-# 1. ENVIRONMENT SETUP & DEPENDENCIES
-rm(list = ls())
+# Pulizia ambiente
+rm(list=ls())
 
-required_packages <- c("ggplot2", "factoextra", "lmtest", "car", "readr", "dplyr")
-new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
-if(length(new_packages)) install.packages(new_packages)
+print(getwd()) # Verifica la cartella di lavoro
 
-library(ggplot2)
-library(factoextra)
-library(lmtest)
-library(car)
-library(readr)
+library(readr)  
 library(dplyr)
 
-# 2. DATA LOADING & CLEANING (Relative Paths)
-data_dir <- "../data"
-output_dir <- "../output"
+# 1) LETTURA DEI FILE CSV
+standard   <- read.csv("serieA_2024_standard.csv", sep=";", skip=1, stringsAsFactors = FALSE)
+possession <- read.csv("serieA_2024_possession.csv", sep=";", skip=1, stringsAsFactors = FALSE)
+defensive  <- read.csv("serieA_2024_Miscellaneous_Stats.csv", sep=";", skip=1, stringsAsFactors = FALSE)
+goal_shot  <- read.csv("serieA_2024_goal_and_shot_creation.csv", sep=";", skip=2, stringsAsFactors = FALSE)
+passing    <- read.csv("serieA_2024_passing.csv", sep=";", skip=1, stringsAsFactors = FALSE)
+shooting   <- read.csv("serieA_2024_goal_and_xG.csv", sep = ";", skip = 1, stringsAsFactors = FALSE)
+rank       <- read.csv("serieA_2024_classifica.csv", sep=";", stringsAsFactors = FALSE)
 
-if (!dir.exists(data_dir)) {
-  stop("ERROR: Unable to locate '../data' directory. Make sure 'data' is next to 'R'.")
-}
-
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-}
-
-find_file <- function(pattern) {
-  files <- list.files(data_dir, pattern = pattern, full.names = TRUE, ignore.case = TRUE)
-  if (length(files) == 0) {
-    stop(paste("File not found in directory", data_dir, "for pattern:", pattern))
-  }
-  return(files[1])
-}
-
-safe_read <- function(filepath, skip_lines = 0) {
-  read.csv(filepath, sep = ";", skip = skip_lines, encoding = "UTF-8", stringsAsFactors = FALSE)
-}
-
-standard   <- safe_read(find_file("standard"), 1)
-possession <- safe_read(find_file("possession"), 1)
-defensive  <- safe_read(find_file("misc"), 1) 
-goal_shot  <- safe_read(find_file("goal_and_shot_creation"), 2)
-passing    <- safe_read(find_file("passing"), 1)
-shooting   <- safe_read(find_file("xG"), 0)
-rank       <- safe_read(find_file("classifica"), 0)
-
+# 2) PULIZIA E FORMATTAZIONE DELLE SQUADRE
 clean_squad <- function(df) {
   if("Squad" %in% names(df)) {
     df$Squad <- iconv(df$Squad, to = "UTF-8", sub = "")
@@ -70,15 +43,19 @@ passing    <- clean_squad(passing)
 shooting   <- clean_squad(shooting)
 rank       <- clean_squad(rank)
 
+# Funzione per convertire le virgole in punti e rendere numeriche le colonne
 to_num <- function(x) {
   as.numeric(gsub(",", ".", as.character(x)))
 }
 
-# 3. RELATIONAL MERGING & DATA PREPARATION
+# Gestione specifica della classifica per estrarre Punti e Squadra
+rank_small <- rank[, c("Squad", "Pts")]
+colnames(rank_small) <- c("Squad", "Points")
+
+# Unione dei dataset relazionali
 serieA <- standard %>%
   select(Squad, Gls) %>%
-  inner_join(rank %>% select(Squad, Pts), by = "Squad") %>%
-  rename(Points = Pts) %>%
+  inner_join(rank_small %>% select(Squad, Points), by = "Squad") %>%
   inner_join(possession %>% select(Squad, Poss), by = "Squad") %>%
   inner_join(passing %>% select(Squad, Short_Pass = Cmp.1, Long_pass = Cmp.3), by = "Squad") %>%
   inner_join(goal_shot %>% select(Squad, SCA), by = "Squad") %>%
@@ -86,87 +63,88 @@ serieA <- standard %>%
   inner_join(shooting %>% select(Squad, xG), by = "Squad") %>%
   mutate(across(c(Points, Gls, Poss, Short_Pass, Long_pass, SCA, Recov, xG), to_num))
 
-cat("\n--- MERGED DATASETS CHECK ---")
-cat("\nProcessed teams count:", nrow(serieA), "out of 20\n\n")
+cat("\nSquadre processate correttamente:", nrow(serieA), "su 20\n\n")
 
-if(nrow(serieA) == 0) {
-  stop("ERROR: Merged dataset is empty. Check column names or team name matching across CSVs.")
-}
-
-# 4. MULTIPLE LINEAR REGRESSION: POINTS
+# ================================
+# REGRESSIONE LINEARE: POINTS
+# ================================
 model_points <- lm(Points ~ xG + Poss + SCA + Short_Pass + Long_pass + Recov, data = serieA)
-cat("=== FULL MODEL: POINTS ===\n")
 print(summary(model_points))
 
-cat("\n--- VIF CHECK (Points Model) ---\n")
-print(vif(model_points))
-
-# 5. MULTIPLE LINEAR REGRESSION: GOALS
+# ================================
+# REGRESSIONE LINEARE: GOALS
+# ================================
 model_goals <- lm(Gls ~ xG + Poss + SCA + Short_Pass + Long_pass + Recov, data = serieA)
-cat("\n=== FULL MODEL: GOALS ===\n")
 print(summary(model_goals))
 
-model_goals_red <- lm(Gls ~ xG + SCA, data = serieA)
-cat("\n=== REDUCED MODEL: GOALS ===\n")
-print(summary(model_goals_red))
+# ============================================================
+# PCA SULLE SQUADRE DI SERIE A (Grafici a schermo)
+# ============================================================
+variables_pca <- c("Points", "Gls", "xG", "Poss", "SCA", "Short_Pass", "Long_pass", "Recov")   
+data_pca <- serieA[, variables_pca]
 
-# 6. PRINCIPAL COMPONENT ANALYSIS (PCA) -> I grafici ora appaiono a schermo
-var_pca <- c("Points", "Gls", "xG", "Poss", "SCA", "Short_Pass", "Long_pass", "Recov")
+pca_serieA <- prcomp(data_pca, center = TRUE, scale. = TRUE)
 
-data_pca_complete <- serieA %>%
-  select(all_of(c("Squad", var_pca))) %>%
-  na.omit()
+library(factoextra)
+print(fviz_eig(pca_serieA, addlabels = TRUE, barfill = "steelblue", barcolor = "black"))
 
-numeric_matrix <- as.matrix(data_pca_complete[, var_pca])
-
-pca_serieA <- prcomp(numeric_matrix, center = TRUE, scale. = TRUE)
-
-# Scree Plot (A schermo)
-print(fviz_eig(pca_serieA, addlabels = TRUE, barfill = "steelblue", barcolor = "black") +
-        labs(title = "Scree Plot - Explained Variance by Component"))
-
-# Biplot (A schermo)
-print(fviz_pca_biplot(pca_serieA, repel = TRUE, col.var = "#2E9FDF", col.ind = "#696969",
-                    title = "PCA Biplot - Serie A Teams (2024/2025)"))
-
-# 7. K-MEANS CLUSTERING -> Il grafico dei cluster appare a schermo
-scaled_data <- scale(numeric_matrix)
-
-set.seed(123)
-km_res <- kmeans(scaled_data, centers = 3, nstart = 25)
-data_pca_complete$Cluster <- factor(km_res$cluster)
-
-scores_pca <- as.data.frame(pca_serieA$x[, 1:2])
-scores_pca$Squad <- data_pca_complete$Squad
-scores_pca$Cluster <- data_pca_complete$Cluster
-
-p_cluster <- ggplot(scores_pca, aes(x = PC1, y = PC2, color = Cluster, label = Squad)) +
-  geom_point(size = 3) +
-  geom_text(vjust = -0.7, size = 3.5, show.legend = FALSE) +
-  labs(title = "K-Means Clustering of Teams in PC1-PC2 Space",
-       x = "First Principal Component (PC1)",
-       y = "Second Principal Component (PC2)") +
-  theme_minimal()
-
-print(p_cluster)
-
-# 8. EXPORT MODEL COMPARISON SUMMARY (Salva solo il file CSV dei modelli)
-summary_pts <- summary(model_points)
-summary_gls <- summary(model_goals)
-summary_red <- summary(model_goals_red)
-
-model_comparison <- data.frame(
-  Model = c("Points (Full)", "Goals (Full)", "Goals (Reduced: xG + SCA)"),
-  R_Squared = c(summary_pts$r.squared, summary_gls$r.squared, summary_red$r.squared),
-  Adj_R_Squared = c(summary_pts$adj.r.squared, summary_gls$adj.r.squared, summary_red$adj.r.squared),
-  Residual_SE = c(summary_pts$sigma, summary_gls$sigma, summary_red$sigma),
-  Num_predictors = c(length(coef(model_points)) - 1, length(coef(model_goals)) - 1, length(coef(model_goals_red)) - 1)
+library(ggplot2)
+scores_pca <- pca_serieA$x
+disegno_pca <- data.frame(
+  Squad = serieA$Squad,
+  PC1   = scores_pca[, 1],
+  PC2   = scores_pca[, 2]
 )
 
-write.csv(model_comparison, file.path(output_dir, "model_comparison_summary.csv"), row.names = FALSE)
+p_pca <- ggplot(disegno_pca, aes(x = PC1, y = PC2, label = Squad)) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  geom_text(size = 4) +
+  labs(title = "Squadre Serie A nel piano PC1–PC2", x = "PC1", y = "PC2") +
+  theme_minimal()
+print(p_pca)
 
-cat("\n========================================================")
-cat("\n Analysis completed successfully! Plots rendered on screen.")
-cat("\n========================================================\n")
+print(fviz_pca_biplot(pca_serieA, repel = TRUE, col.var = "#2E9FDF", col.ind = "#696969", label = "all"))
+
+# ================================
+# CLUSTERING (Grafico a schermo)
+# ================================
+cluster_data <- serieA[, variables_pca]   
+cluster_scaled <- scale(cluster_data)
+
+set.seed(123)
+km_serieA <- kmeans(cluster_scaled, centers = 3, nstart = 25)
+serieA$Cluster <- factor(km_serieA$cluster)
+
+pca_scores <- pca_serieA$x[, 1:2]
+plot_pca_cluster <- data.frame(
+  PC1     = pca_scores[, 1],
+  PC2     = pca_scores[, 2],
+  Cluster = serieA$Cluster,
+  Squad   = serieA$Squad
+)
+
+p_cluster <- ggplot(plot_pca_cluster, aes(x = PC1, y = PC2, color = Cluster, label = Squad)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.7, size = 3, show.legend = FALSE) +
+  labs(title = "Cluster delle squadre di Serie A sulle prime due componenti principali", x = "PC1", y = "PC2") +
+  theme_minimal()
+print(p_cluster)
+
+# ================================
+# REGRESSIONE RIDOTTA E CONFRONTO
+# ================================
+model_goals_red <- lm(Gls ~ xG + SCA, data = serieA)
+
+summary_pts  <- summary(model_points)
+summary_gls  <- summary(model_goals)
+summary_red  <- summary(model_goals_red)
+
+confronto_modelli <- data.frame(
+  Modello   = c("Points (completo)", "Goals (completo)", "Goals (ridotto xG + SCA)"),
+  R2        = c(summary_pts$r.squared, summary_gls$r.squared, summary_red$r.squared),
+  Adj_R2    = c(summary_pts$adj.r.squared, summary_gls$adj.r.squared, summary_red$adj.r.squared)
+)
+print(confronto_modelli)
 
 
