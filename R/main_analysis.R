@@ -20,7 +20,6 @@ library(readr)
 library(dplyr)
 
 # 2. DATA LOADING & CLEANING (Relative Paths)
-
 data_dir <- "../data"
 output_dir <- "../output"
 
@@ -32,7 +31,6 @@ if (!dir.exists(output_dir)) {
   dir.create(output_dir, recursive = TRUE)
 }
 
-# Helper function to load CSV files by pattern matching (case-insensitive)
 find_file <- function(pattern) {
   files <- list.files(data_dir, pattern = pattern, full.names = TRUE, ignore.case = TRUE)
   if (length(files) == 0) {
@@ -41,20 +39,28 @@ find_file <- function(pattern) {
   return(files[1])
 }
 
-standard   <- read.csv(find_file("standard"), sep = ";", skip = 1, encoding = "UTF-8")
-possession <- read.csv(find_file("possession"), sep = ";", skip = 1, encoding = "UTF-8")
-defensive  <- read.csv(find_file("Miscellaneous_Stats"), sep = ";", skip = 1, encoding = "UTF-8")
-goal_shot  <- read.csv(find_file("goal_and_shot_creation"), sep = ";", skip = 2, encoding = "UTF-8")
-passing    <- read.csv(find_file("passing"), sep = ";", skip = 1, encoding = "UTF-8")
-shooting   <- read.csv(find_file("xG"), sep = ";", encoding = "UTF-8") # No skip for goal & xG file
-rank       <- read.csv(find_file("classifica"), sep = ";", encoding = "UTF-8")
+safe_read <- function(filepath, skip_lines = 0) {
+  read.csv(filepath, sep = ";", skip = skip_lines, encoding = "UTF-8", stringsAsFactors = FALSE)
+}
 
-# Helper function to clean team names (Universal Encoding & Regex Fix)
+# Caricamento dei file (corretto il pattern per le statistiche difensive/misc)
+standard   <- safe_read(find_file("standard"), 1)
+possession <- safe_read(find_file("possession"), 1)
+defensive  <- safe_read(find_file("misc"), 1) # Modificato da Miscellaneous_Stats a misc per sicurezza
+goal_shot  <- safe_read(find_file("goal_and_shot_creation"), 2)
+passing    <- safe_read(find_file("passing"), 1)
+shooting   <- safe_read(find_file("xG"), 0)
+rank       <- safe_read(find_file("classifica"), 0)
+
+# Pulizia rigorosa dei nomi delle squadre per evitare problemi di join
 clean_squad <- function(df) {
-  df$Squad <- iconv(df$Squad, to = "UTF-8", sub = "")
-  df$Squad <- gsub("[^[:alnum:][:space:]]", "", df$Squad)
-  df$Squad <- gsub("^[0-9]+\\s*", "", df$Squad) # Remove leading ranking numbers
-  df$Squad <- trimws(df$Squad)
+  if("Squad" %in% names(df)) {
+    df$Squad <- iconv(df$Squad, to = "UTF-8", sub = "")
+    df$Squad <- gsub("[^[:alnum:][:space:]]", "", df$Squad)
+    df$Squad <- gsub("^[0-9]+\\s*", "", df$Squad) # Rimuove numeri iniziali (es. posizioni in classifica)
+    df$Squad <- gsub("\\s+", " ", df$Squad)      # Sostituisce spazi multipli con uno singolo
+    df$Squad <- trimws(df$Squad)
+  }
   return(df)
 }
 
@@ -66,7 +72,11 @@ passing    <- clean_squad(passing)
 shooting   <- clean_squad(shooting)
 rank       <- clean_squad(rank)
 
-# 3. RELATIONAL MERGING
+to_num <- function(x) {
+  as.numeric(gsub(",", ".", as.character(x)))
+}
+
+# 3. RELATIONAL MERGING & DATA PREPARATION
 serieA <- standard %>%
   select(Squad, Gls) %>%
   inner_join(rank %>% select(Squad, Pts), by = "Squad") %>%
@@ -75,15 +85,23 @@ serieA <- standard %>%
   inner_join(passing %>% select(Squad, Short_Pass = Cmp.1, Long_pass = Cmp.3), by = "Squad") %>%
   inner_join(goal_shot %>% select(Squad, SCA), by = "Squad") %>%
   inner_join(defensive %>% select(Squad, Recov), by = "Squad") %>%
-  inner_join(shooting %>% select(Squad, xG), by = "Squad")
+  inner_join(shooting %>% select(Squad, xG), by = "Squad") %>%
+  mutate(across(c(Points, Gls, Poss, Short_Pass, Long_pass, SCA, Recov, xG), to_num))
 
 cat("\n--- MERGED DATASETS CHECK ---")
 cat("\nProcessed teams count:", nrow(serieA), "out of 20\n\n")
+
+if(nrow(serieA) == 0) {
+  stop("ERROR: Merged dataset is empty. Check column names or team name matching across CSVs.")
+}
 
 # 4. MULTIPLE LINEAR REGRESSION: POINTS
 model_points <- lm(Points ~ xG + Poss + SCA + Short_Pass + Long_pass + Recov, data = serieA)
 cat("=== FULL MODEL: POINTS ===\n")
 print(summary(model_points))
+
+cat("\n--- VIF CHECK (Points Model) ---\n")
+print(vif(model_points))
 
 # 5. MULTIPLE LINEAR REGRESSION: GOALS
 model_goals <- lm(Gls ~ xG + Poss + SCA + Short_Pass + Long_pass + Recov, data = serieA)
@@ -96,9 +114,14 @@ print(summary(model_goals_red))
 
 # 6. PRINCIPAL COMPONENT ANALYSIS (PCA)
 var_pca <- c("Points", "Gls", "xG", "Poss", "SCA", "Short_Pass", "Long_pass", "Recov")
-data_pca <- serieA[, var_pca]
 
-pca_serieA <- prcomp(data_pca, center = TRUE, scale. = TRUE)
+data_pca_complete <- serieA %>%
+  select(all_of(c("Squad", var_pca))) %>%
+  na.omit()
+
+numeric_matrix <- as.matrix(data_pca_complete[, var_pca])
+
+pca_serieA <- prcomp(numeric_matrix, center = TRUE, scale. = TRUE)
 
 # Export Scree Plot
 png(file.path(output_dir, "pca_screeplot.png"), width = 800, height = 600)
@@ -113,16 +136,15 @@ print(fviz_pca_biplot(pca_serieA, repel = TRUE, col.var = "#2E9FDF", col.ind = "
 dev.off()
 
 # 7. K-MEANS CLUSTERING
-scaled_data <- scale(data_pca)
+scaled_data <- scale(numeric_matrix)
 
 set.seed(123)
 km_res <- kmeans(scaled_data, centers = 3, nstart = 25)
-serieA$Cluster <- factor(km_res$cluster)
+data_pca_complete$Cluster <- factor(km_res$cluster)
 
-# Export Cluster Map in PC1-PC2 space
 scores_pca <- as.data.frame(pca_serieA$x[, 1:2])
-scores_pca$Squad <- serieA$Squad
-scores_pca$Cluster <- serieA$Cluster
+scores_pca$Squad <- data_pca_complete$Squad
+scores_pca$Cluster <- data_pca_complete$Cluster
 
 p_cluster <- ggplot(scores_pca, aes(x = PC1, y = PC2, color = Cluster, label = Squad)) +
   geom_point(size = 3) +
@@ -134,7 +156,7 @@ p_cluster <- ggplot(scores_pca, aes(x = PC1, y = PC2, color = Cluster, label = S
 
 ggsave(file.path(output_dir, "cluster_pca.png"), plot = p_cluster, width = 9, height = 6)
 
-# 8. EXPORT MODEL COMPARISON SUMMARY (Enterprise Best Practice)
+# 8. EXPORT MODEL COMPARISON SUMMARY
 summary_pts <- summary(model_points)
 summary_gls <- summary(model_goals)
 summary_red <- summary(model_goals_red)
