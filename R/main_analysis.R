@@ -43,22 +43,20 @@ safe_read <- function(filepath, skip_lines = 0) {
   read.csv(filepath, sep = ";", skip = skip_lines, encoding = "UTF-8", stringsAsFactors = FALSE)
 }
 
-# Caricamento dei file (corretto il pattern per le statistiche difensive/misc)
 standard   <- safe_read(find_file("standard"), 1)
 possession <- safe_read(find_file("possession"), 1)
-defensive  <- safe_read(find_file("misc"), 1) # Modificato da Miscellaneous_Stats a misc per sicurezza
+defensive  <- safe_read(find_file("misc"), 1) 
 goal_shot  <- safe_read(find_file("goal_and_shot_creation"), 2)
 passing    <- safe_read(find_file("passing"), 1)
 shooting   <- safe_read(find_file("xG"), 0)
 rank       <- safe_read(find_file("classifica"), 0)
 
-# Pulizia rigorosa dei nomi delle squadre per evitare problemi di join
 clean_squad <- function(df) {
   if("Squad" %in% names(df)) {
     df$Squad <- iconv(df$Squad, to = "UTF-8", sub = "")
     df$Squad <- gsub("[^[:alnum:][:space:]]", "", df$Squad)
-    df$Squad <- gsub("^[0-9]+\\s*", "", df$Squad) # Rimuove numeri iniziali (es. posizioni in classifica)
-    df$Squad <- gsub("\\s+", " ", df$Squad)      # Sostituisce spazi multipli con uno singolo
+    df$Squad <- gsub("^[0-9]+\\s*", "", df$Squad)
+    df$Squad <- gsub("\\s+", " ", df$Squad)
     df$Squad <- trimws(df$Squad)
   }
   return(df)
@@ -112,7 +110,7 @@ model_goals_red <- lm(Gls ~ xG + SCA, data = serieA)
 cat("\n=== REDUCED MODEL: GOALS ===\n")
 print(summary(model_goals_red))
 
-# 6. PRINCIPAL COMPONENT ANALYSIS (PCA)
+# 6. PRINCIPAL COMPONENT ANALYSIS (PCA) -> I grafici ora appaiono a schermo
 var_pca <- c("Points", "Gls", "xG", "Poss", "SCA", "Short_Pass", "Long_pass", "Recov")
 
 data_pca_complete <- serieA %>%
@@ -123,19 +121,15 @@ numeric_matrix <- as.matrix(data_pca_complete[, var_pca])
 
 pca_serieA <- prcomp(numeric_matrix, center = TRUE, scale. = TRUE)
 
-# Export Scree Plot
-png(file.path(output_dir, "pca_screeplot.png"), width = 800, height = 600)
+# Scree Plot (A schermo)
 print(fviz_eig(pca_serieA, addlabels = TRUE, barfill = "steelblue", barcolor = "black") +
         labs(title = "Scree Plot - Explained Variance by Component"))
-dev.off()
 
-# Export Biplot
-png(file.path(output_dir, "pca_biplot.png"), width = 900, height = 700)
+# Biplot (A schermo)
 print(fviz_pca_biplot(pca_serieA, repel = TRUE, col.var = "#2E9FDF", col.ind = "#696969",
-                      title = "PCA Biplot - Serie A Teams (2024/2025)"))
-dev.off()
+                    title = "PCA Biplot - Serie A Teams (2024/2025)"))
 
-# 7. K-MEANS CLUSTERING
+# 7. K-MEANS CLUSTERING -> Il grafico dei cluster appare a schermo
 scaled_data <- scale(numeric_matrix)
 
 set.seed(123)
@@ -154,9 +148,9 @@ p_cluster <- ggplot(scores_pca, aes(x = PC1, y = PC2, color = Cluster, label = S
        y = "Second Principal Component (PC2)") +
   theme_minimal()
 
-ggsave(file.path(output_dir, "cluster_pca.png"), plot = p_cluster, width = 9, height = 6)
+print(p_cluster)
 
-# 8. EXPORT MODEL COMPARISON SUMMARY
+# 8. EXPORT MODEL COMPARISON SUMMARY (Salva solo il file CSV dei modelli)
 summary_pts <- summary(model_points)
 summary_gls <- summary(model_goals)
 summary_red <- summary(model_goals_red)
@@ -172,7 +166,7 @@ model_comparison <- data.frame(
 write.csv(model_comparison, file.path(output_dir, "model_comparison_summary.csv"), row.names = FALSE)
 
 cat("\n========================================================")
-cat("\n Analysis completed successfully!")
-cat("\n - High-resolution plots saved in 'output/'.")
-cat("\n - Model summary exported to 'output/model_comparison_summary.csv'.")
+cat("\n Analysis completed successfully! Plots rendered on screen.")
 cat("\n========================================================\n")
+
+
